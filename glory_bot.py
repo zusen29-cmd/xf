@@ -837,8 +837,8 @@ def cmd_stop(msg: types.Message):
     log.info(f"[user={user_id}] session stopped manually")
 
 
-# ── Fallback ─────────────────────────────────────────────────────────────
-@bot.message_handler(func=lambda m: True)
+# ── Fallback – chỉ reply khi người dùng gõ lệnh / không hợp lệ ──────────
+@bot.message_handler(func=lambda m: m.text and m.text.startswith("/"))
 def fallback(msg: types.Message):
     _del_cmd(msg, 5)
     _send(msg.chat.id,
