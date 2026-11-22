@@ -56,7 +56,7 @@ class KeyManager:
         self._lock   = threading.Lock()
         self._path   = path
         self._keys: Dict[str, bool] = {}   # key → used (False = còn dùng được)
-        self._authed: set = set()          # user_id đã xác thực trong session này
+        self._authed: set = set()          # user_id đã xác thực – persist vào disk
         self._load()
 
     # ── disk ────────────────────────────────────────────────────────────
@@ -64,15 +64,28 @@ class KeyManager:
         try:
             if os.path.exists(self._path):
                 with open(self._path, "r", encoding="utf-8") as f:
-                    self._keys = json.load(f)
+                    data = json.load(f)
+                # Hỗ trợ cả format cũ (dict key→bool) lẫn format mới
+                if isinstance(data, dict) and "keys" in data:
+                    self._keys   = data.get("keys", {})
+                    self._authed = set(data.get("authed_users", []))
+                else:
+                    # Format cũ: chỉ có dict key→bool
+                    self._keys   = data if isinstance(data, dict) else {}
+                    self._authed = set()
         except Exception as e:
             log.error(f"KeyManager load: {e}")
-            self._keys = {}
+            self._keys   = {}
+            self._authed = set()
 
     def _save(self):
         try:
+            data = {
+                "keys"        : self._keys,
+                "authed_users": list(self._authed),
+            }
             with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(self._keys, f, indent=2)
+                json.dump(data, f, indent=2)
         except Exception as e:
             log.error(f"KeyManager save: {e}")
 
@@ -99,10 +112,10 @@ class KeyManager:
                 return "invalid"
             if self._keys[key] is True:
                 return "used"
-            # Hợp lệ → đánh dấu dùng rồi, cấp quyền
+            # Hợp lệ → đánh dấu dùng rồi, cấp quyền, lưu disk
             self._keys[key] = True
-            self._save()
             self._authed.add(user_id)
+            self._save()
             return "ok"
 
     def is_authed(self, user_id: int) -> bool:
