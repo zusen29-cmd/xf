@@ -1524,7 +1524,8 @@ async def request_join_clan(jwt_token: str, clan_id: Any) -> bool:
         return False
 
 #Mode
-DEFAULT_GAME_MODE_ID = 1
+DEFAULT_GAME_MODE_ID = 15
+DEFAULT_GAME_SUB_MODE_ID = 1
 
 def _get_region_pfx(region, base="05"):
     reg = str(region).upper() if region else "ID"
