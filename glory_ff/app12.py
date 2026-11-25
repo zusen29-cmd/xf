@@ -2003,20 +2003,16 @@ async def build_movement_packet_2001(
 
 class MovementController:
     _STATE_TRANSITIONS: dict = {
-        "sprint": {"sprint": 0.54, "run": 0.28, "walk": 0.10, "crouch": 0.08},
-        "run":    {"sprint": 0.36, "run": 0.34, "walk": 0.18, "crouch": 0.12},
-        "walk":   {"sprint": 0.22, "run": 0.32, "walk": 0.30, "crouch": 0.16},
-        "crouch": {"walk": 0.42, "run": 0.28, "sprint": 0.18, "crouch": 0.12},
+        "sprint": {"sprint": 0.55, "run": 0.45},
+        "run":    {"sprint": 0.45, "run": 0.55},
     }
     _MOVE_TARGET_SPEEDS: dict = {
-        "crouch": 2050.0,
-        "walk": 3350.0,
-        "run": 4550.0,
-        "sprint": 5650.0,
+        "run": 3350.0,
+        "sprint": 3950.0,
     }
-    _ACCEL_UP_RATE: float = 21000.0
-    _ACCEL_DOWN_RATE: float = 14500.0
-    _TURN_RATE_RAD_PER_SEC: float = 4.2
+    _ACCEL_UP_RATE: float = 14000.0
+    _ACCEL_DOWN_RATE: float = 11000.0
+    _TURN_RATE_RAD_PER_SEC: float = 3.8
     _STUCK_SPREAD_THRESHOLD: float = 750.0
     _STUCK_WINDOW_SIZE: int = 8
     _SWEEP_OFFSETS: Tuple[float, ...] = (0.75, -0.95, 1.55, -1.75)
@@ -2053,11 +2049,11 @@ class MovementController:
         init_angle = ((self.slot_id - 1) * (math.pi / 2.0)) + random.uniform(-0.35, 0.35)
         self.angle = init_angle
         self.target_angle = init_angle
-        self.state = "sprint"
+        self.state = "run"
         self.cur_speed = 0.0
         self.vel_y = 0.0
-        self.pkt_s1 = 0
-        self.pkt_s2 = 2
+        self.pkt_s1 = 1
+        self.pkt_s2 = 11
         self.speed_mul = random.uniform(MOVEMENT_SPEED_MIN, MOVEMENT_SPEED_MAX)
         self._msg_keys = [0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C]
         self._key_idx = 0
@@ -2076,7 +2072,7 @@ class MovementController:
         self.last_srv_pos: Optional[Tuple[int, int, int]] = None
 
         self._pos_history: List[Tuple[float, int, int]] = []
-        self._next_decision_interval: float = random.uniform(2.5, 6.0)
+        self._next_decision_interval: float = random.uniform(2.8, 6.0)
         self._last_home_update_t: float = 0.0
         self._sway_phase: float = random.uniform(0.0, 2.0 * math.pi)
         self._sprint_burst_until: float = 0.0
@@ -2141,7 +2137,6 @@ class MovementController:
         self._pos_history.clear()
 
         if self._stuck_count <= 2:
-            # Quét góc trượt men theo vật thể (wall-slide)
             offset = self._SWEEP_OFFSETS[self._sweep_idx % len(self._SWEEP_OFFSETS)]
             self._sweep_idx += 1
             if self._stuck_count == 2:
@@ -2152,18 +2147,17 @@ class MovementController:
             self._escape_angle = (self.angle + offset) % (2.0 * math.pi)
             self._set_target_angle(self._escape_angle, snap=False)
             self.state = "run"
-            self.cur_speed = max(self.cur_speed, 3800.0)
+            self.cur_speed = max(self.cur_speed, 2800.0)
             self._log_escape(now, f"NÉ VẬT CẢN (SWEEP #{self._stuck_count})")
         else:
-            # Kẹt sâu / góc hẹp -> lùi có kiểm soát rồi xoay thoát hướng
             backoff_dur = min(1.5 + (self._stuck_count - 2) * 0.55, 4.0)
             back_angle = (self.angle + math.pi + self._steer_dir * random.uniform(0.3, 0.75)) % (2.0 * math.pi)
             self._escape_mode = "backoff"
             self._escape_until = now + backoff_dur
             self._escape_angle = back_angle
             self._set_target_angle((back_angle + self._steer_dir * random.uniform(0.6, 1.15)) % (2.0 * math.pi), snap=False)
-            self.state = "walk"
-            self.cur_speed = 2500.0
+            self.state = "run"
+            self.cur_speed = 2200.0
             self._log_escape(now, f"BACK-OFF KẸT SÂU (#{self._stuck_count})", color=PX.ROSE, icon=ICONS["warn"])
 
     async def _echo_clock_sync(self, raw_tick_bytes: bytes) -> None:
@@ -2280,35 +2274,38 @@ class MovementController:
                         self._pos_history.clear()
                         init_gnd = ((self.slot_id - 1) * (math.pi / 2.0)) + random.uniform(-0.3, 0.3)
                         self._set_target_angle(init_gnd, snap=True)
-                        self.state = "sprint"
-                        self._sprint_burst_until = now + random.uniform(3.5, 6.5)
+                        self.state = "run"
+                        self._sprint_burst_until = now + random.uniform(3.0, 5.5)
                         log_event(f"HẠ CÁNH | uid={self.account_id} slot={self.slot_id} pos=({zx},{zy},{zz})", color=PX.LIME, icon=ICONS["target"], tag="AFK")
                         return
 
                     self.phase = "ground"
                     self.last_srv_pos = (zx, zy, zz)
-                    self.ground_y = zy
-                    self.y = float(zy)
+                    if abs(zy - self.ground_y) < 2500:
+                        self.ground_y = zy
+                    self.y = float(self.ground_y)
+                    self.vel_y = 0.0
 
                     in_escape = now < self._escape_until
                     dist_xz = math.hypot(self.x - zx, self.z - zz)
                     if not in_escape:
                         if dist_xz > 6000.0:
                             self.x, self.z = float(zx), float(zz)
-                            self.ground_y = zy
-                            self.y = float(zy)
+                            if abs(zy - self.ground_y) < 2500:
+                                self.ground_y = zy
+                            self.y = float(self.ground_y)
                             self._set_target_angle(self._pick_clear_angle(self.angle + math.pi * 0.75, spread=0.9), snap=False)
                         elif dist_xz > 2000.0:
                             self.x += (zx - self.x) * 0.15
                             self.z += (zz - self.z) * 0.15
 
-                    if self._pos_history and self.cur_speed > 1400.0:
+                    if self._pos_history and self.cur_speed > 1100.0:
                         prev_t, prev_x, prev_z = self._pos_history[-1]
                         dt_srv = now - prev_t
                         if 0.08 <= dt_srv <= 1.5:
                             actual_step = math.hypot(zx - prev_x, zz - prev_z)
                             expected_step = self.cur_speed * dt_srv
-                            if actual_step < max(110.0, expected_step * 0.16):
+                            if actual_step < max(95.0, expected_step * 0.16):
                                 self._low_progress_streak += 1
                             else:
                                 self._low_progress_streak = max(0, self._low_progress_streak - 1)
@@ -2319,7 +2316,7 @@ class MovementController:
                     self._pos_history.append((now, zx, zz))
                     if len(self._pos_history) > self._STUCK_WINDOW_SIZE:
                         self._pos_history.pop(0)
-                    if len(self._pos_history) == self._STUCK_WINDOW_SIZE and self.cur_speed > 900.0:
+                    if len(self._pos_history) == self._STUCK_WINDOW_SIZE and self.cur_speed > 800.0:
                         xs = [p[1] for p in self._pos_history]
                         zs = [p[2] for p in self._pos_history]
                         spread = math.hypot(max(xs) - min(xs), max(zs) - min(zs))
@@ -2338,12 +2335,12 @@ class MovementController:
 
     def _pick_state(self, now: float) -> str:
         if now < self._sprint_burst_until:
-            return "sprint" if random.random() < 0.75 else "run"
-        weights = self._STATE_TRANSITIONS.get(self.state, self._STATE_TRANSITIONS["sprint"])
+            return "sprint" if random.random() < 0.65 else "run"
+        weights = self._STATE_TRANSITIONS.get(self.state, self._STATE_TRANSITIONS["run"])
         states, probs = zip(*weights.items())
         chosen = random.choices(states, weights=probs, k=1)[0]
-        if chosen == "sprint" and random.random() < 0.35:
-            self._sprint_burst_until = now + random.uniform(3.5, 7.0)
+        if chosen == "sprint" and random.random() < 0.30:
+            self._sprint_burst_until = now + random.uniform(3.0, 6.0)
         return chosen
 
     def _step_position(self, dt: float) -> None:
@@ -2365,8 +2362,8 @@ class MovementController:
             self.ground_y = self.spawn_y
             self.y = float(self.ground_y)
             self.vel_y = 0.0
-            self._smooth_turn(dt, rate_mul=1.1)
-            speed = 5600.0 * self.speed_mul
+            self._smooth_turn(dt, rate_mul=1.0)
+            speed = 3850.0 * self.speed_mul
             self.pkt_s1, self.pkt_s2 = 1, 11
             self.cur_speed = speed
             self.x += math.cos(self.angle) * speed * dt
@@ -2394,30 +2391,22 @@ class MovementController:
         self.vel_y = 0.0
 
         in_backoff = (now < self._escape_until and self._escape_mode == "backoff")
-        turn_mul = 1.45 if (now < self._escape_until) else 1.0
+        turn_mul = 1.35 if (now < self._escape_until) else 1.0
         self._smooth_turn(dt, rate_mul=turn_mul)
 
-        self._sway_phase = (self._sway_phase + dt * 5.2) % (2.0 * math.pi)
-        sway_offset = math.sin(self._sway_phase) * (0.032 if self.state in ("sprint", "run") else 0.015)
+        self._sway_phase = (self._sway_phase + dt * 4.8) % (2.0 * math.pi)
+        sway_offset = math.sin(self._sway_phase) * 0.024
         move_heading = self._escape_angle if in_backoff else ((self.angle + sway_offset) % (2.0 * math.pi))
 
-        base = self._MOVE_TARGET_SPEEDS.get(self.state, 5600.0)
-        target = min(base * self.speed_mul, 2800.0) if in_backoff else (base * self.speed_mul)
+        if self.state not in ("run", "sprint"):
+            self.state = "run"
+        base = self._MOVE_TARGET_SPEEDS.get(self.state, 3350.0)
+        target = min(base * self.speed_mul, 2400.0) if in_backoff else (base * self.speed_mul)
         delta = target - self.cur_speed
         accel_limit = (self._ACCEL_UP_RATE if delta > 0 else self._ACCEL_DOWN_RATE) * dt
         self.cur_speed += math.copysign(min(abs(delta), accel_limit), delta)
         speed = self.cur_speed
-
-        if self.state == "crouch":
-            self.pkt_s1, self.pkt_s2 = 3, 1
-        elif self.state == "walk":
-            self.pkt_s1, self.pkt_s2 = 0, 1
-        elif self.state in ("run", "sprint"):
-            self.pkt_s1, self.pkt_s2 = 1, 11
-        else:
-            speed = 0.0
-            self.cur_speed = 0.0
-            self.pkt_s1, self.pkt_s2 = 0, 0
+        self.pkt_s1, self.pkt_s2 = 1, 11
 
         self.cur_speed = speed
         if speed > 0.0:
@@ -2503,18 +2492,15 @@ class MovementController:
 
             if self.phase == "ground":
                 in_escape = now < self._escape_until
-                if not in_escape:
-                    if (now - self._last_decision) >= self._next_decision_interval:
-                        prev_state = self.state
-                        self.state = self._pick_state(now)
-                        turn_span = 0.55 if self.state == "sprint" else 0.95
-                        if prev_state != self.state:
-                            turn_span *= 0.8
-                        self._set_target_angle(self._pick_clear_angle(self.target_angle, spread=turn_span), snap=False)
-                        self._last_decision = now
-                        self._next_decision_interval = random.uniform(2.5, 6.0)
-                elif self._escape_mode == "backoff":
-                    self.state = "walk"
+                if not in_escape and (now - self._last_decision) >= self._next_decision_interval:
+                    prev_state = self.state
+                    self.state = self._pick_state(now)
+                    turn_span = 0.55 if self.state == "sprint" else 0.90
+                    if prev_state != self.state:
+                        turn_span *= 0.85
+                    self._set_target_angle(self._pick_clear_angle(self.target_angle, spread=turn_span), snap=False)
+                    self._last_decision = now
+                    self._next_decision_interval = random.uniform(2.8, 6.0)
 
                 if (now - self._last_speed_change) >= MOVEMENT_UPDATE_SPEED_EVERY:
                     self.speed_mul = random.uniform(MOVEMENT_SPEED_MIN, MOVEMENT_SPEED_MAX)
