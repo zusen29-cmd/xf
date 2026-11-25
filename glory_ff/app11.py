@@ -1637,7 +1637,7 @@ async def send_solo_match_packet(region: str, client_version: str, writer: async
         pkt_bytes = raw_pkt
 
     reg = str(region or "BD").upper()
-    prefix = "0319" if reg == "BD" else ("0314" if reg == "IND" else "0315")
+    prefix = "0315" if reg == "BD" else ("0314" if reg == "IND" else "0315")
     enc_hex = (await aes_encrypt(pkt_bytes, key, iv)).hex()
     pkt_len = len(enc_hex) // 2
     writer.write(bytes.fromhex(f"{prefix}{pkt_len:08x}{enc_hex}"))
