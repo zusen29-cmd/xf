@@ -1288,7 +1288,6 @@ async def grant_gop_token(uid: str, password: str, gop_url: str, app_version: st
         await asyncio.sleep(1.0)
     return None
 
-
 async def build_login_payload(access_token: str, open_id: str, platform: Any, version: str, lang_code: str = "vn") -> bytes:
     major_login = {
         "3": str(time.strftime("%Y-%m-%d %H:%M:%S"))[:-3],
