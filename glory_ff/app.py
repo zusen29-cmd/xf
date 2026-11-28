@@ -1306,7 +1306,7 @@ async def build_login_payload(access_token: str, open_id: str, platform: Any, ve
         "17": "PowerVR B-Series BXM-8-256",
         "18": "OpenGL ES 3.2 build 25.1@6715691",
         "19": f"Google|{uuid.uuid4()}",
-        "20": "171.253.158.137",
+        "20": "162.177.4.1",
         "21": lang_code,
         "22": f"{open_id}",
         "23": f"{platform}",
